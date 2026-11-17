@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>行程明细填写</title>
+<script type="module">
+import { bitable } from '@lark-base-open/js-sdk';
+window.__bitable = bitable;
+window.dispatchEvent(new Event('sdk-ready'));
+</script>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --line:#e5e7eb; --line2:#d1d5db;
+    --txt:#1f2329; --muted:#8a9099; --sub:#646a73;
+    --brand:#3370ff; --brand-bg:#eef3ff;
+    --ok:#1f9d55; --ok-bg:#e8f7ee; --warn:#d46b08; --warn-bg:#fff7e6;
+    --err:#d93026; --err-bg:#fef0ef; --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px;line-height:1.5;padding:16px}
+  .wrap{max-width:920px;margin:0 auto}
+  .hd{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+  .hd h1{font-size:17px;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px}
+  .card-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+  .card h2{font-size:14px;font-weight:600}
+  .cnt{font-size:12px;color:var(--sub);background:#f0f1f3;border-radius:20px;padding:2px 10px;margin-left:8px}
+  label{font-size:12px;color:var(--sub);font-weight:500}
+  label .req{color:var(--err);margin-left:2px}
+  label .hint{font-weight:400;color:var(--muted);margin-left:6px}
+  input[type=text],input[type=date],input[type=time],select{
+    height:36px;border:1px solid var(--line2);border-radius:7px;padding:0 10px;font-size:13px;color:var(--txt);
+    background:#fff;outline:none;width:100%}
+  input:focus,select:focus{border-color:var(--brand);box-shadow:0 0 0 2px rgba(51,112,255,.12)}
+  textarea{height:34px;min-height:34px;border:1px solid var(--line2);border-radius:7px;padding:7px 8px;font-size:12px;
+    color:var(--txt);background:#fff;outline:none;width:100%;resize:vertical;font-family:inherit;line-height:1.4}
+  button{border:none;border-radius:7px;height:34px;padding:0 14px;font-size:13px;cursor:pointer;font-family:inherit}
+  .btn-p{background:var(--brand);color:#fff;font-weight:500}
+  .btn-p:hover{background:#245bdb}
+  .btn-p:disabled{background:#a9bdf5;cursor:not-allowed}
+  .btn-s{background:#fff;color:var(--sub);border:1px solid var(--line2)}
+  .btn-s:hover{border-color:var(--brand);color:var(--brand)}
+  .rows{width:100%;border-collapse:collapse;font-size:12px}
+  .rows th{text-align:left;font-size:11px;color:var(--muted);font-weight:500;padding:0 5px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .rows td{padding:5px;border-bottom:1px solid #f0f1f3;vertical-align:middle}
+  .rows input,.rows select{height:32px;font-size:12px;padding:0 7px}
+  .rows .del{width:26px;height:26px;border-radius:6px;background:transparent;color:var(--muted);font-size:16px;padding:0}
+  .rows .del:hover{background:var(--err-bg);color:var(--err)}
+  .btns{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .tip{font-size:12px;color:var(--muted)}
+  .trip-meta{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:12px;color:var(--sub);flex-wrap:wrap}
+  .trip-meta .k{color:var(--muted)}
+  .trip-meta .v{color:var(--txt);font-weight:600;background:var(--brand-bg);border-radius:5px;padding:1px 8px}
+  .trip-meta .v.none{color:var(--muted);background:#f0f1f3;font-weight:400}
+  .note{font-size:12px;border-radius:7px;padding:9px 12px;margin-top:10px;line-height:1.6}
+  .note.info{background:var(--brand-bg);color:#2b5fb8}
+  .note.ok{background:var(--ok-bg);color:var(--ok)}
+  .note.err{background:var(--err-bg);color:var(--err)}
+  .map-tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  .map-tbl th,.map-tbl td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left}
+  .map-tbl th{color:var(--muted);font-weight:500}
+  .map-tbl select{height:30px;font-size:12px}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;
+    border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd">
+    <h1>行程明细填写</h1>
+    <button class="btn-s" id="btnCfg">字段映射</button>
+  </div>
+
+  <div class="card" id="loadCard">
+    <h2 id="loadMsg">读取数据表结构中…</h2>
+    <div class="note err hidden" id="loadErr"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <label>填写人 <span class="req">*</span></label>
+      <select id="personSel" style="margin-top:6px"><option value="">加载中…</option></select>
+    </div>
+
+    <div class="card">
+      <label>选择出差 / 接待单 <span class="req">*</span><span class="hint">默认最近一张，可下拉更换</span></label>
+      <select id="tripSel" style="margin-top:6px"><option value="">加载中…</option></select>
+      <div class="trip-meta" id="tripMeta" style="display:none">
+        <span class="k">客户：</span><span class="v" id="tripCustomer">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        <h2>行程明细<span class="cnt" id="rowCnt">0 段</span></h2>
+        <button class="btn-s" id="btnAddRow">＋ 加一行</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="rows">
+          <thead><tr>
+            <th style="min-width:126px">日期</th>
+            <th style="min-width:86px">开始 *</th>
+            <th style="min-width:86px">结束 *</th>
+            <th style="min-width:128px">具体地点 *</th>
+            <th style="min-width:118px">行程安排</th>
+            <th style="min-width:138px">主要会见人员</th>
+            <th style="min-width:180px">交流内容</th>
+            <th style="width:28px"></th>
+          </tr></thead>
+          <tbody id="segBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="btns">
+        <button class="btn-p" id="btnSubmit">提交行程</button>
+        <button class="btn-s" id="btnClear">清空</button>
+        <span class="tip" id="previewTip"></span>
+      </div>
+      <div class="note hidden" id="result"></div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="cfgCard">
+    <div class="card-hd"><h2>字段映射</h2></div>
+    <div id="cfgBody"></div>
+    <div class="btns" style="margin-top:10px">
+      <button class="btn-p" id="btnSaveCfg">保存</button>
+      <button class="btn-s" id="btnResetCfg">恢复自动识别</button>
+      <button class="btn-s" id="btnCfgClose">收起</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  let bitable, mainTable, subTable, allMetas=[];
+  let mainFields=[], subFields=[];
+  let CFG = {};
+  let trips=[];
+  let allTripItems=[];      // 全部单据（含 person 字段）
+  let personPick='';        // 当前筛选的填写人（空=全部）
+  let submitting=false;
+  let defaultTripDate='';
+
+  const MAIN_KEYS={
+    topic:['出差主题','主题','标题'],
+    业务员:['业务员','工程师','申请人'],
+    start:['出差起始日','起始日','接待日期','开始日期','出发日期'],
+    customer:['客户','客户名称','来访单位','来访客户'],
+    type:['单据类型']
+  };
+  const SUB_KEYS={
+    link:['所属单据','关联单据','出差单'],
+    业务员:['业务员','工程师'],
+    date:['日期','行程日期'],
+    begin:['开始时间','开始'],
+    end:['结束时间','结束'],
+    arrange:['行程安排','安排'],
+    place:['具体地点','地点'],
+    contact:['主要会见人员','会见人员','会见','主要会洽人员','会洽人员','会洽'],
+    content:['交流内容','交流']
+  };
+  const FIELD_KEYS_MAIN=Object.keys(MAIN_KEYS);
+  const FIELD_KEYS_SUB=Object.keys(SUB_KEYS);
+
+  function norm(s){return (s||'').replace(/\s|\(|\)|（|）/g,'').trim();}
+  // 精准识别两张表：主表=出差&接待计划；子表=出差&接待行程明细（排除 订单明细 / 开票回款明细）
+  function pickTables(metas){
+    const nameOf=m=>norm(m.name||'');
+    const main=metas.find(m=>{const n=nameOf(m);return /出差/.test(n)&&/接待/.test(n)&&!/行程|明细/.test(n);})
+      || metas.find(m=>{const n=nameOf(m);return /出差|接待/.test(n)&&!/行程|明细|订单|开票|回款/.test(n);});
+    const sub=metas.find(m=>{const n=nameOf(m);return /行程/.test(n)&&!/订单|开票|回款/.test(n);})
+      || metas.find(m=>{const n=nameOf(m);return /行程|明细/.test(n)&&!/订单|开票|回款/.test(n);});
+    return {main,sub};
+  }
+  async function applyTables(){
+    mainTable=await bitable.base.getTable(CFG.mainTableId);
+    subTable=await bitable.base.getTable(CFG.subTableId);
+    mainFields=await mainTable.getFieldMetaList();
+    subFields=await subTable.getFieldMetaList();
+  }
+  function guess(fieldList, keys){
+    const names=fieldList.map(f=>({id:f.id,name:norm(f.name)}));
+    const out={};
+    Object.keys(keys).forEach(k=>{
+      let hit=null;
+      for(const kw of keys[k]){
+        const kk=norm(kw);
+        hit=names.find(f=>f.name===kk);
+        if(hit)break;
+      }
+      if(!hit){
+        outer: for(const kw of keys[k]){
+          const kk=norm(kw);
+          for(const f of names){ if(f.name.indexOf(kk)>=0){hit=f;break outer;} }
+        }
+      }
+      out[k]=hit?hit.id:'';
+    });
+    return out;
+  }
+  function loadCfg(){
+    try{const s=localStorage.getItem('tripPluginCfg_v1');if(s)return JSON.parse(s);}catch(e){}
+    return null;
+  }
+  function saveCfg(o){try{localStorage.setItem('tripPluginCfg_v1',JSON.stringify(o));}catch(e){}}
+  function safe(v){return v==null?'':String(v).replace(/</g,'&lt;');}
+  function optHtml(list, selected, withBlank){
+    let h=withBlank?'<option value="">— 不写入 —</option>':'';
+    list.forEach(f=>{h+='<option value="'+f.id+'"'+(f.id===selected?' selected':'')+'>'+safe(f.name)+'</option>';});
+    return h;
+  }
+
+  async function boot(){
+    if(!window.__bitable){showErr('组件未加载完成，请刷新页面重试。');return;}
+    bitable=window.__bitable;
+    try{
+      allMetas=await bitable.base.getTableMetaList();
+      const picked=pickTables(allMetas);
+      if(!picked.main||!picked.sub){showErr('没找到「出差&接待计划 + 出差&接待行程明细」两张表，请在字段映射里手动指定。');return;}
+
+      const saved=loadCfg();
+      // 只有用户手动锁定过表（tablePinned）且两张表仍存在，才沿用保存的表；否则一律用精准识别结果
+      const sm=saved&&allMetas.find(m=>m.id===saved.mainTableId);
+      const ss=saved&&allMetas.find(m=>m.id===saved.subTableId);
+      const useSaved=!!(saved&&saved.tablePinned&&sm&&ss);
+      if(useSaved){CFG=saved;}
+      else{
+        CFG={mainTableId:picked.main.id, subTableId:picked.sub.id, main:{}, sub:{}, tablePinned:false};
+      }
+      await applyTables();
+      if(!useSaved){
+        CFG.main=guess(mainFields,MAIN_KEYS);
+        CFG.sub=guess(subFields,SUB_KEYS);
+        saveCfg(CFG);
+      }
+      $('loadCard').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      renderCfg();
+      buildMainRow();
+      await loadTrips();
+      updatePreview();
+    }catch(e){
+      console.error(e);
+      showErr('读取表结构失败：'+(e&&e.message?e.message:e));
+    }
+  }
+  function showErr(msg){
+    $('loadMsg').textContent='加载失败';
+    const box=$('loadErr');box.classList.remove('hidden');box.textContent=msg;
+  }
+
+  function tableOpts(selected){
+    return allMetas.map(m=>'<option value="'+m.id+'"'+(m.id===selected?' selected':'')+'>'+safe(m.name)+'</option>').join('');
+  }
+  function renderCfg(){
+    let h='<div style="font-weight:500;font-size:12px">出差主表</div>';
+    h+='<select data-cfg-table="main" style="margin:5px 0 9px">'+tableOpts(CFG.mainTableId)+'</select>';
+    h+='<table class="map-tbl"><thead><tr><th style="width:110px">用途</th><th>对应字段</th></tr></thead><tbody>';
+    FIELD_KEYS_MAIN.forEach(k=>{
+      const nm=(MAIN_KEYS[k]||[])[0]||k;
+      h+='<tr><td>'+safe(nm)+'</td><td><select data-cfg="main" data-k="'+k+'">'+optHtml(mainFields,CFG.main[k],true)+'</select></td></tr>';
+    });
+    h+='</tbody></table>';
+    h+='<div style="font-weight:500;font-size:12px;margin-top:12px">行程子表</div>';
+    h+='<select data-cfg-table="sub" style="margin:5px 0 9px">'+tableOpts(CFG.subTableId)+'</select>';
+    h+='<table class="map-tbl"><thead><tr><th style="width:110px">用途</th><th>对应字段</th></tr></thead><tbody>';
+    FIELD_KEYS_SUB.forEach(k=>{
+      const nm=(SUB_KEYS[k]||[])[0]||k;
+      h+='<tr><td>'+safe(nm)+'</td><td><select data-cfg="sub" data-k="'+k+'">'+optHtml(subFields,CFG.sub[k],k!=='业务员'&&k!=='link')+'</select></td></tr>';
+    });
+    h+='</tbody></table>';
+    $('cfgBody').innerHTML=h;
+  }
+
+  function segRow(data){
+    data=data||{};
+    const autoDate=!data.date;
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      '<td><input type="date" class="c-date" value="'+safe(data.date||defaultTripDate||'')+'"'+(autoDate?' data-auto="1"':'')+'></td>'+
+      '<td><input type="time" step="60" class="c-begin" value="'+safe(data.begin||'')+'"></td>'+
+      '<td><input type="time" step="60" class="c-end" value="'+safe(data.end||'')+'"></td>'+
+      '<td><input type="text" class="c-place" value="'+safe(data.place||'')+'" placeholder="必填"></td>'+
+      '<td><input type="text" class="c-arr" value="'+safe(data.arr||'')+'" placeholder=""></td>'+
+      '<td><input type="text" class="c-contact" value="'+safe(data.contact||'')+'" placeholder="姓名/职务"></td>'+
+      '<td><textarea class="c-content">'+safe(data.content||'')+'</textarea></td>'+
+      '<td><button class="del" title="删除此行">×</button></td>';
+    tr.querySelector('.del').onclick=()=>{tr.remove();updatePreview();};
+    const dateEl=tr.querySelector('.c-date');
+    dateEl.addEventListener('change',()=>{dateEl.removeAttribute('data-auto');updatePreview();});
+    tr.querySelectorAll('input:not(.c-date),textarea').forEach(el=>el.addEventListener('change',updatePreview));
+    $('segBody').appendChild(tr);
+    return tr;
+  }
+  function hhmm(v){return (v||'').slice(0,5);} // 只要时分，去掉浏览器可能带的秒
+  function readRows(){
+    return Array.from($('segBody').children).map(tr=>({
+      date:tr.querySelector('.c-date').value,
+      begin:hhmm(tr.querySelector('.c-begin').value),
+      end:hhmm(tr.querySelector('.c-end').value),
+      arr:tr.querySelector('.c-arr').value.trim(),
+      place:tr.querySelector('.c-place').value.trim(),
+      contact:tr.querySelector('.c-contact').value.trim(),
+      content:tr.querySelector('.c-content').value.trim()
+    }));
+  }
+  function buildMainRow(){if($('segBody').children.length===0)segRow({});}
+  function stamp(date,time){
+    if(!date)return null;
+    const ms=new Date(date+'T'+(time||'00:00')+':00').getTime();
+    return isNaN(ms)?null:ms;
+  }
+
+  function recordIdOf(r){return (r&&(r.id||r.recordId||r.record_id))||'';}
+  // getRecordList 返回的是可迭代 IRecordList（非数组），统一转成真数组
+  async function recordListToArray(list){
+    const out=[];
+    if(!list)return out;
+    if(Array.isArray(list))return list;
+    try{for(const r of list)out.push(r);}catch(e){}
+    return out;
+  }
+  function cellValToText(v){
+    if(v==null)return '';
+    if(typeof v==='string'||typeof v==='number')return String(v);
+    if(Array.isArray(v))return v.map(cellValToText).filter(Boolean).join('、');
+    if(typeof v==='object'){
+      for(const k of ['text','name','value','title']){if(v[k]!=null)return cellValToText(v[k]);}
+    }
+    return '';
+  }
+  async function cellText(r,fieldId){
+    try{
+      const cell=await r.getCellByField(fieldId);
+      const v=await cell.getValue();
+      return cellValToText(v);
+    }catch(e){return '';}
+  }
+  // 读关联字段里指向的主表记录 id（兼容字符串 / 对象 / value 嵌套）
+  async function linkIdsOf(r,fieldId){
+    try{
+      const cell=await r.getCellByField(fieldId);
+      const v=await cell.getValue();
+      const arr=Array.isArray(v)?v:[v];
+      const ids=[];
+      arr.forEach(x=>{
+        if(x==null)return;
+        if(typeof x==='string'){ids.push(x);return;}
+        if(typeof x==='object'){
+          const id=x.recordId||x.id||x.record_id;
+          if(id){ids.push(id);return;}
+          if(x.value!=null){
+            const vv=Array.isArray(x.value)?x.value:[x.value];
+            vv.forEach(y=>{
+              const id2=(typeof y==='string')?y:(y&&(y.recordId||y.id||y.record_id));
+              if(id2)ids.push(id2);
+            });
+          }
+        }
+      });
+      return ids;
+    }catch(e){return [];}
+  }
+  // 统计每张主单据已挂多少段行程：{主表recordId: 段数}
+  async function buildSegCount(){
+    const map={};
+    if(!CFG.sub.link)return map;
+    try{
+      const list=await recordListToArray(await subTable.getRecordList());
+      for(const r of list){
+        const ids=await linkIdsOf(r,CFG.sub.link);
+        ids.forEach(id=>{map[id]=(map[id]||0)+1;});
+      }
+    }catch(e){console.warn('统计行程条数失败',e);}
+    return map;
+  }
+  async function loadTrips(){
+    if(!CFG.main.topic){
+      $('tripSel').innerHTML='<option value="">（未识别主题字段，请在字段映射里指定）</option>';
+      $('personSel').innerHTML='<option value="">（需先识别主题字段）</option>';
+      return;
+    }
+    try{
+      const countMap=await buildSegCount(); // {主表recordId: 已有行程段数}
+      const list=await recordListToArray(await mainTable.getRecordList());
+      const items=[];
+      for(let i=0;i<list.length && items.length<500;i++){
+        const r=list[i], rid=recordIdOf(r);
+        if(!rid)continue;
+        let title=await cellText(r,CFG.main.topic);
+        if(!title)title='（无主题 '+(rid||'').slice(-4)+'）';
+        const segN=countMap[rid]||0;
+        let person='';
+        if(CFG.main['业务员'])person=await cellText(r,CFG.main['业务员']);
+        items.push({rid,title,segN,idx:i,person});
+      }
+      allTripItems=items;
+      trips=list;
+      buildPersonSel();
+      renderTripSel();
+    }catch(e){console.warn('读取单据失败',e);}
+  }
+
+  // 从单据里汇总人名，构建「填写人」下拉；记住上次选择
+  function buildPersonSel(){
+    const ps=$('personSel');
+    const names=[];
+    allTripItems.forEach(it=>{if(it.person&&names.indexOf(it.person)<0)names.push(it.person);});
+    names.sort((a,b)=>a.localeCompare(b,'zh-CN'));
+    let saved='';try{saved=localStorage.getItem('tripPluginPerson')||'';}catch(e){}
+    ps.innerHTML='<option value="">— 全部人员（不筛选）—</option>';
+    names.forEach(n=>{
+      const o=document.createElement('option');o.value=n;o.textContent=n;ps.appendChild(o);
+    });
+    // 沿用上次选择（若该人仍在名单里）
+    personPick=(saved&&names.indexOf(saved)>=0)?saved:'';
+    ps.value=personPick;
+    ps.onchange=()=>{
+      personPick=ps.value;
+      try{localStorage.setItem('tripPluginPerson',personPick);}catch(e){}
+      renderTripSel();
+    };
+  }
+
+  // 按当前填写人过滤并渲染单据下拉
+  function renderTripSel(){
+    const sel=$('tripSel');sel.innerHTML='<option value="">请选择…</option>';
+    const items=allTripItems.filter(it=>!personPick||it.person===personPick);
+    // 待补(0段)排最前；同组内按主表原顺序倒序（靠后的是新单，放前面）
+    items.sort((a,b)=>{
+      if((a.segN>0)!==(b.segN>0))return a.segN>0?1:-1;
+      return b.idx-a.idx;
+    });
+    let firstPending='';
+    items.forEach(it=>{
+      const o=document.createElement('option');o.value=it.rid;
+      o.textContent=it.title+(it.segN>0?('（已有'+it.segN+'段）'):'（待补行程）');
+      sel.appendChild(o);
+      if(!firstPending&&it.segN===0)firstPending=it.rid;
+    });
+    if(!items.length)sel.innerHTML='<option value="">（'+(personPick?personPick+' 名下暂无单据':'主表还没有单据')+'）</option>';
+    else sel.value=firstPending||items[0].rid; // 默认第一张待补；都补过则第一张
+    sel.onchange=applyTripDateFromSelection;
+    applyTripDateFromSelection();
+  }
+
+  function msToDate(ms){
+    if(!ms||isNaN(ms))return '';
+    const d=new Date(Number(ms));
+    if(isNaN(d.getTime()))return '';
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+  async function readDateOfTrip(tripId){
+    const candidates=[];
+    if(CFG.main.start)candidates.push(CFG.main.start);
+    // 兜底：主表里所有可能是日期的字段
+    mainFields.forEach(f=>{if(/日期|时间|日$|date/i.test(f.name||''))candidates.push(f.id);});
+    for(const fid of candidates){
+      try{
+        const f=await mainTable.getFieldById(fid);
+        if(!f||typeof f.getValue!=='function')continue;
+        const v=await f.getValue(tripId);
+        if(typeof v==='number'&&v>0)return msToDate(v);
+        if(typeof v==='string'&&v)return v.slice(0,10);
+        if(v&&typeof v==='object'){
+          if(v.timestamp)return msToDate(v.timestamp);
+          if(v.value)return msToDate(v.value);
+        }
+      }catch(e){}
+    }
+    return '';
+  }
+  async function showCustomerOfTrip(tripId){
+    const box=$('tripCustomer'),meta=$('tripMeta');
+    if(!tripId||!CFG.main.customer){meta.style.display='none';return;}
+    const rec=trips.find(r=>recordIdOf(r)===tripId);
+    let name='';
+    if(rec)name=await cellText(rec,CFG.main.customer);
+    box.textContent=name||'—';
+    box.classList.toggle('none',!name);
+    meta.style.display='flex';
+  }
+  async function applyTripDateFromSelection(){
+    const rid=$('tripSel').value;
+    if(!rid){$('tripMeta').style.display='none';return;}
+    defaultTripDate=await readDateOfTrip(rid)||'';
+    document.querySelectorAll('#segBody .c-date[data-auto="1"]').forEach(el=>{el.value=defaultTripDate;});
+    await showCustomerOfTrip(rid);
+    updatePreview();
+  }
+  async function getPersonValueFromTrip(tripId){
+    if(!CFG.sub['业务员']||!CFG.main['业务员'])return null;
+    try{
+      const f=await mainTable.getFieldById(CFG.main['业务员']);
+      if(!f||typeof f.getValue!=='function')return null;
+      const v=await f.getValue(tripId);
+      const arr=Array.isArray(v)?v:[v];
+      if(arr.length&&arr[0]&&arr[0].id)return {id:arr[0].id};
+    }catch(e){console.warn('读取业务员失败',e);}
+    return null;
+  }
+
+  function subFieldValues(row,linkId,person){
+    const o={};
+    if(linkId&&CFG.sub.link)o[CFG.sub.link]=[linkId];
+    if(person&&CFG.sub['业务员'])o[CFG.sub['业务员']]=[person];
+    if(CFG.sub.date&&row.date)o[CFG.sub.date]=stamp(row.date,'00:00');
+    if(CFG.sub.begin&&row.date&&row.begin)o[CFG.sub.begin]=stamp(row.date,row.begin);
+    if(CFG.sub.end&&row.date&&row.end)o[CFG.sub.end]=stamp(row.date,row.end);
+    if(CFG.sub.arrange&&row.arr)o[CFG.sub.arrange]=row.arr;
+    if(CFG.sub.place&&row.place)o[CFG.sub.place]=row.place;
+    if(CFG.sub.contact&&row.contact)o[CFG.sub.contact]=row.contact;
+    if(CFG.sub.content&&row.content)o[CFG.sub.content]=row.content;
+    return o;
+  }
+
+  function updatePreview(){
+    const all=readRows();
+    const ok=all.filter(r=>r.date&&r.begin&&r.end&&r.place).length;
+    $('rowCnt').textContent=all.length+' 段';
+    const sel=$('tripSel');
+    const name=(sel&&sel.selectedIndex>=0&&sel.value)?sel.options[sel.selectedIndex].textContent:'';
+    $('previewTip').textContent=name?('将写入 '+ok+' 段到「'+name+'」'):'请先选择单据';
+    $('btnSubmit').disabled=submitting||!sel.value;
+  }
+
+  async function doSubmit(){
+    if(submitting)return;
+    const rid=$('tripSel').value;
+    if(!rid){alert('请选择一张出差 / 接待单');return;}
+    const all=readRows();
+    const rows=all.filter(r=>r.date&&r.begin&&r.end&&r.place);
+    if(rows.length===0){alert('至少加一段行程');return;}
+    if(all.length!==rows.length){alert('每行都要填「具体地点 / 开始 / 结束」，且日期要能带出来（请确认所选单有日期）');return;}
+
+    submitting=true;updatePreview();
+    const btn=$('btnSubmit');btn.innerHTML='<span class="spin"></span>写入中…';
+    const res=$('result');res.classList.remove('hidden');res.className='note info';res.textContent='正在写入…';
+    try{
+      const person=await getPersonValueFromTrip(rid);
+      const payload=rows.map(r=>({fields:subFieldValues(r,rid,person)}));
+      const ids=await subTable.addRecords(payload);
+      res.className='note ok';
+      res.innerHTML='<b>完成</b>：已加 '+ids.length+' 段行程'+(person?'，业务员已自动带入':'（业务员未带入，请检查子表默认值或自动化）')+'。正在刷新单据列表…';
+      await loadTrips(); // 刚补完的单已有行程→自动沉底，下一张待补单顶上来
+      $('segBody').innerHTML='';buildMainRow();updatePreview();
+    }catch(e){
+      console.error(e);
+      res.className='note err';
+      res.textContent='写入失败：'+(e&&e.message?e.message:e)+'。已写入部分不会回滚，请到表里核对。';
+    }finally{
+      submitting=false;btn.textContent='提交行程';
+    }
+  }
+
+  function clearAll(){
+    $('segBody').innerHTML='';buildMainRow();
+    $('result').classList.add('hidden');
+    updatePreview();
+  }
+
+  function init(){
+    $('btnAddRow').addEventListener('click',()=>{segRow({});updatePreview();});
+    $('btnSubmit').addEventListener('click',doSubmit);
+    $('btnClear').addEventListener('click',clearAll);
+    const cfg=$('btnCfg');
+    cfg.addEventListener('click',()=>$('cfgCard').classList.toggle('hidden'));
+    $('btnCfgClose').addEventListener('click',()=>$('cfgCard').classList.add('hidden'));
+    $('btnSaveCfg').addEventListener('click',async()=>{
+      const newMain=document.querySelector('[data-cfg-table="main"]').value;
+      const newSub=document.querySelector('[data-cfg-table="sub"]').value;
+      const tableChanged=(newMain!==CFG.mainTableId)||(newSub!==CFG.subTableId);
+      document.querySelectorAll('[data-cfg]').forEach(s=>{
+        const t=s.getAttribute('data-cfg'),k=s.getAttribute('data-k');CFG[t][k]=s.value;
+      });
+      CFG.mainTableId=newMain; CFG.subTableId=newSub;
+      const p=pickTables(allMetas);
+      CFG.tablePinned=!!(p.main&&p.sub)&&(newMain!==p.main.id||newSub!==p.sub.id);
+      try{
+        if(tableChanged){
+          await applyTables();
+          CFG.main=guess(mainFields,MAIN_KEYS);
+          CFG.sub=guess(subFields,SUB_KEYS);
+        }
+        saveCfg(CFG);
+        renderCfg();
+        await loadTrips();
+        updatePreview();
+        alert('映射已保存。'+(tableChanged?'（表已切换，字段已按新表重新识别，请再核对一次映射。）':''));
+      }catch(e){alert('保存失败：'+(e&&e.message?e.message:e));}
+    });
+    $('btnResetCfg').addEventListener('click',async()=>{
+      const p=pickTables(allMetas);
+      if(!p.main||!p.sub){alert('未能自动识别两张表，请手动选择。');return;}
+      CFG.mainTableId=p.main.id; CFG.subTableId=p.sub.id; CFG.tablePinned=false;
+      await applyTables();
+      CFG.main=guess(mainFields,MAIN_KEYS);
+      CFG.sub=guess(subFields,SUB_KEYS);
+      saveCfg(CFG);renderCfg();await loadTrips();updatePreview();
+    });
+    if(window.__bitable)boot();
+    else window.addEventListener('sdk-ready',boot,{once:true});
+    setTimeout(()=>{if(!window.__bitable&&!$('app').offsetParent)showErr('SDK 加载超时，请刷新或检查网络。');},12000);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
