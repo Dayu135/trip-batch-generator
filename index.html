@@ -508,18 +508,55 @@ window.dispatchEvent(new Event('sdk-ready'));
     return null;
   }
 
+  // 只读计算字段类型（飞书 FieldType）：0 不支持 / 19 查找引用 / 20 公式 / 403 拒绝
+  // / 1001 创建时间 / 1002 修改时间 / 1003 创建人 / 1004 修改人 / 1005 自动编号
+  // 这类字段写入会直接报 not support。写前一律跳过。
+  const READONLY_TYPES=[0,19,20,403,1001,1002,1003,1004,1005];
+  function fieldWritable(fid){
+    if(!fid)return false;
+    const m=subFields.find(f=>f.id===fid);
+    if(!m)return true; // 取不到类型就放行，避免误杀
+    return READONLY_TYPES.indexOf(Number(m.type))<0;
+  }
+  function put(o,fid,val){
+    if(fid&&fieldWritable(fid)&&val!==null&&val!==undefined&&val!=='')o[fid]=val;
+  }
   function subFieldValues(row,linkId,person){
     const o={};
-    if(linkId&&CFG.sub.link)o[CFG.sub.link]=[linkId];
-    if(person&&CFG.sub['业务员'])o[CFG.sub['业务员']]=[person];
-    if(CFG.sub.date&&row.date)o[CFG.sub.date]=stamp(row.date,'00:00');
-    if(CFG.sub.begin&&row.date&&row.begin)o[CFG.sub.begin]=stamp(row.date,row.begin);
-    if(CFG.sub.end&&row.date&&row.end)o[CFG.sub.end]=stamp(row.date,row.end);
-    if(CFG.sub.arrange&&row.arr)o[CFG.sub.arrange]=row.arr;
-    if(CFG.sub.place&&row.place)o[CFG.sub.place]=row.place;
-    if(CFG.sub.contact&&row.contact)o[CFG.sub.contact]=row.contact;
-    if(CFG.sub.content&&row.content)o[CFG.sub.content]=row.content;
+    // 「日期」「时间段」是子表里的公式字段（fx 图标），由飞书自动算出，绝不写；
+    // 日期信息已包含在「开始时间/结束时间」的时间戳里。
+    // 关联字段「所属单据」也不在 addRecords 里写——改用字段 setValue 显式挂接（见 attachLink），
+    // 因为 addRecords 对关联值的格式容忍度低，直接写字符串数组会静默不挂。
+    if(person)put(o,CFG.sub['业务员'],[person]);
+    if(row.date&&row.begin)put(o,CFG.sub.begin,stamp(row.date,row.begin));
+    if(row.date&&row.end)put(o,CFG.sub.end,stamp(row.date,row.end));
+    put(o,CFG.sub.arrange,row.arr);
+    put(o,CFG.sub.place,row.place);
+    put(o,CFG.sub.contact,row.contact);
+    put(o,CFG.sub.content,row.content);
     return o;
+  }
+  // 用关联字段自身的 setValue 把新记录挂到主单据：值格式为 IOpenLink 对象
+  async function attachLink(recordIds,linkId){
+    if(!linkId||!CFG.sub.link||!recordIds||!recordIds.length)return {ok:0,fail:0};
+    let field=null;
+    try{field=await subTable.getFieldById(CFG.sub.link);}catch(e){console.warn('取关联字段失败',e);}
+    if(field&&typeof field.setValue==='function'){
+      // 优先用字段 setValue，值带 recordIds/tableId/type/text
+      const val={recordIds:[linkId],tableId:CFG.mainTableId,type:'text',text:''};
+      let ok=0;
+      for(const rid of recordIds){
+        try{const r=await field.setValue(rid,val);if(r!==false)ok++;}
+        catch(e){console.warn('setValue 关联失败',rid,e);}
+      }
+      if(ok)return {ok,fail:recordIds.length-ok};
+    }
+    // 退路：setRecord 整体更新关联字段
+    try{
+      const val={recordIds:[linkId],tableId:CFG.mainTableId,type:'text',text:''};
+      for(const rid of recordIds){try{await subTable.setRecord(rid,{[CFG.sub.link]:val});}catch(e){console.warn('setRecord 关联失败',e);}}
+      return {ok:recordIds.length,fail:0};
+    }catch(e){return {ok:0,fail:recordIds.length};}
   }
 
   function updatePreview(){
@@ -544,18 +581,29 @@ window.dispatchEvent(new Event('sdk-ready'));
     submitting=true;updatePreview();
     const btn=$('btnSubmit');btn.innerHTML='<span class="spin"></span>写入中…';
     const res=$('result');res.classList.remove('hidden');res.className='note info';res.textContent='正在写入…';
+    let payload=[];
     try{
       const person=await getPersonValueFromTrip(rid);
-      const payload=rows.map(r=>({fields:subFieldValues(r,rid,person)}));
+      payload=rows.map(r=>({fields:subFieldValues(r,rid,person)}));
       const ids=await subTable.addRecords(payload);
+      // addRecords 拿到新记录 id 后，显式把「所属单据」关联挂到所选主单据
+      let linkMsg='';
+      try{
+        const realIds=Array.from(ids||[]).map(x=>(typeof x==='string')?x:(x&&(x.recordId||x.id))).filter(Boolean);
+        const lk=await attachLink(realIds,rid);
+        linkMsg=lk.ok?('，已关联到所选单据 '+lk.ok+' 段'):'，⚠️ 关联未挂上（请把这句截图发我）';
+      }catch(e){console.warn('关联挂接异常',e);linkMsg='，⚠️ 关联挂接异常（请截图）';}
       res.className='note ok';
-      res.innerHTML='<b>完成</b>：已加 '+ids.length+' 段行程'+(person?'，业务员已自动带入':'（业务员未带入，请检查子表默认值或自动化）')+'。正在刷新单据列表…';
+      res.innerHTML='<b>完成</b>：已加 '+(ids||[]).length+' 段行程'+(person?'，业务员已自动带入':'')+linkMsg+'。正在刷新单据列表…';
       await loadTrips(); // 刚补完的单已有行程→自动沉底，下一张待补单顶上来
       $('segBody').innerHTML='';buildMainRow();updatePreview();
     }catch(e){
       console.error(e);
+      const flds=payload.length?Object.keys(payload[0].fields).map(id=>{
+        const m=subFields.find(f=>f.id===id);return (m?m.name:id)+'(type'+(m?m.type:'?')+')';
+      }).join('、'):'（无）';
       res.className='note err';
-      res.textContent='写入失败：'+(e&&e.message?e.message:e)+'。已写入部分不会回滚，请到表里核对。';
+      res.textContent='写入失败：'+(e&&e.message?e.message:e)+'。本次字段：'+flds+'。请把这句话截图发我。';
     }finally{
       submitting=false;btn.textContent='提交行程';
     }
